@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 
-def train_gan(netG, netD, dataloader, device, num_epochs, learning_rate, beta1, noise_level):
+def train_gan(netG, netD, dataloader, device, num_epochs, learning_rate, beta1, num_classes):
     # Loss function
     criterion = nn.BCELoss()
 
@@ -25,23 +25,24 @@ def train_gan(netG, netD, dataloader, device, num_epochs, learning_rate, beta1, 
             ###########################
             netD.zero_grad()
             # Format batch
-            noisy_images, real_images = data
+            noisy_images, labels, real_images = data
             noisy_images = noisy_images.to(device)
             real_images = real_images.to(device)
+            labels = labels.to(device)
             b_size = real_images.size(0)
             label_real = torch.full((b_size,), real_label, dtype=torch.float, device=device)
             label_fake = torch.full((b_size,), fake_label, dtype=torch.float, device=device)
 
             # Forward pass real batch through D
-            output_real = netD(real_images).view(-1)
+            output_real = netD(real_images, labels).view(-1)
             lossD_real = criterion(output_real, label_real)
             lossD_real.backward()
 
-            # Generate fake images (denoised images)
-            fake_images = netG(noisy_images)
+            # Generate fake images
+            fake_images = netG(noisy_images, labels)
 
-            # Classify all fake batch with D
-            output_fake = netD(fake_images.detach()).view(-1)
+            # Classify fake images with D
+            output_fake = netD(fake_images.detach(), labels).view(-1)
             lossD_fake = criterion(output_fake, label_fake)
             lossD_fake.backward()
             optimizerD.step()
@@ -50,9 +51,9 @@ def train_gan(netG, netD, dataloader, device, num_epochs, learning_rate, beta1, 
             # (2) Update G network
             ###########################
             netG.zero_grad()
-            # Since we just updated D, perform another forward pass of all-fake batch through D
-            output_fake_for_G = netD(fake_images).view(-1)
-            # Calculate G's loss based on this output
+            # Generate fake images again for G update
+            fake_images = netG(noisy_images, labels)
+            output_fake_for_G = netD(fake_images, labels).view(-1)
             lossG_adv = criterion(output_fake_for_G, label_real)
             # L1 loss for reconstruction
             lossG_L1 = nn.L1Loss()(fake_images, real_images) * 100  # Weight of L1 loss
