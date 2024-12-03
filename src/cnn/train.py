@@ -48,7 +48,7 @@ def run(dataset):
 
     # Evaluate the model
     correct, total = evaluate(model, test_loader, dataset)
-    print('Accuracy of the network on the {} train images: {} %'.format(50000, 100 * correct / total))
+    print('Accuracy of the network on the {} test images: {} %'.format(50000, 100 * correct / total))
 
     torch.save(model.state_dict(), config.MODEL_PATH(f"trained_with_{dataset}.pt"))
 
@@ -78,7 +78,7 @@ def evaluate(model, test_loader, dataset):
                             columns = [i for i in config.CIFAR_10_CLASSES])
         plt.figure(figsize = (12,7))
         sn.heatmap(df_cm, annot=True)
-        plt.savefig(config.CONFUSION_MATRIX_PATH(f'trained_with_{dataset}.png')) # TODO: save to an output folder later        
+        plt.savefig(config.CONFUSION_MATRIX_PATH(f'trained_with_{dataset}.png'))        
         
         return correct, total
 
