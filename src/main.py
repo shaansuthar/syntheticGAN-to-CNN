@@ -6,17 +6,16 @@ import subprocess
 def main():
 
     # Train the GAN
-    subprocess.run(["python", "./gan/train.py"], check=True)
-
-    # Save the model params to '/models' dir
+    subprocess.run(["python", "./gan/train.py"], check=True) # Note: generator model params saved as './models/generator.pt'
 
     # GAN generates x # of images for each class (maybe experiment with different values of x)
 
     # Create two datasets: CIFAR-10 and Noisy CIFAR-10 (with generated images)
 
     # Train the CNN on only CIFAR-10 dataset
+    subprocess.run(["python", "./cnn/train.py", "--dataset", "cifar10"], check=True)
 
-    # Train the CNN on the Noisy CIFAR-10 dataset
+    # Train the CNN on the Noisy CIFAR-10 dataset, TODO: might need to refactor the datasets logic in cnn to handle this
 
     # Perform evaluation on both models and compare the results
 

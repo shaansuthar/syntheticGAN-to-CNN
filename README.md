@@ -60,3 +60,12 @@ The directory structure of your new project will look something like this (depen
         |
         └── utils.py              <- Collection of important helper functions
 ```
+
+# Usage
+
+To run the entire experiment, run this command:
+
+```sh
+cd src
+python main.py
+```
