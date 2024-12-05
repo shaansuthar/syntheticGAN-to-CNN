@@ -1,6 +1,8 @@
 import torch
 import config
 from torch.utils.data import Dataset
+import matplotlib.pyplot as plt
+import numpy as np
 
 class SyntheticDataset(Dataset):
     def __init__(self, images, labels):
@@ -14,7 +16,7 @@ class SyntheticDataset(Dataset):
         return self.images[idx], self.labels[idx]  # Return label as int
 
 
-def generate_synthetic_data(generator, num_samples):
+def generate_synthetic_data(generator, num_samples, show_samples=False):
     generator.eval()
     synthetic_images = []
     synthetic_labels = []
@@ -33,4 +35,31 @@ def generate_synthetic_data(generator, num_samples):
     synthetic_images = torch.cat(synthetic_images)
 
     synthetic_dataset = SyntheticDataset(synthetic_images, synthetic_labels)
+
+    if show_samples:
+        visualize_batch(synthetic_images, synthetic_labels)
     return synthetic_dataset
+
+def visualize_batch(images, labels, num_samples=10):
+    
+    # Select random indices if we have more than num_samples
+    if len(images) > num_samples:
+        indices = np.random.choice(len(images), num_samples, replace=False)
+        images = images[indices]
+        labels = [labels[i] for i in indices]
+    
+    # Create a grid of images
+    fig, axes = plt.subplots(2, 5, figsize=(15, 6))
+    class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 
+                  'dog', 'frog', 'horse', 'ship', 'truck']
+    
+    for idx, (ax, img, label) in enumerate(zip(axes.flat, images, labels)):
+        # Denormalize from [-1,1] to [0,1]
+        img = (img + 1) / 2.0
+        img = img.permute(1, 2, 0).numpy()
+        ax.imshow(img)
+        ax.axis('off')
+        ax.set_title(f'{class_names[label]}')
+    
+    plt.tight_layout()
+    plt.show()

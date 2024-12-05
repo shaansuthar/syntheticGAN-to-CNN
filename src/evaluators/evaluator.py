@@ -13,7 +13,7 @@ class Evaluator:
         self.model = model.to(device)
         self.device = device
 
-    def evaluate(self, test_loader):
+    def evaluate(self, test_loader, dataset_type):
         self.model.eval()
         y_true = []
         y_pred = []
@@ -31,10 +31,10 @@ class Evaluator:
         cm = confusion_matrix(y_true, y_pred)
 
         # Plot confusion matrix
-        self.plot_confusion_matrix(cm, config.RESULTS_DIR, 'confusion_matrix.png')
+        self.plot_confusion_matrix(cm, config.RESULTS_DIR, f'{dataset_type}_confusion_matrix.png')
 
         # Save classification report
-        self.save_classification_report(report, config.RESULTS_DIR, 'classification_report.csv')
+        self.save_classification_report(report, config.RESULTS_DIR, f'{dataset_type}_classification_report.csv')
 
         return {'accuracy': accuracy, 'report': report}
 
@@ -56,4 +56,4 @@ class Evaluator:
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         df = pd.DataFrame(report).transpose()
-        df.to_csv(os.path.join(save_dir, filename))
+        df.to_csv(os.path.join(save_dir, filename))    

@@ -41,6 +41,6 @@ class NoisyCIFAR10(Dataset):
         # Add Gaussian noise
         noise = torch.randn_like(clean_image) * self.noise_level
         noisy_image = clean_image + noise
-        # Clamp to [-1, 1]
-        noisy_image = torch.clamp(noisy_image, -1., 1.)
+        # Clamp to [0, 1]
+        noisy_image = torch.clamp(noisy_image, 0., 1.)
         return noisy_image, label, clean_image

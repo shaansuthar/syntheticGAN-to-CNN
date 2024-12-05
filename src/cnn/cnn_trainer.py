@@ -13,7 +13,7 @@ class CNNTrainer:
         self.model = CNN(num_classes).to(self.device)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate,
-                                   weight_decay=0.005, momentum=0.9)
+                                   weight_decay=config.CNN_OPT_WEIGHT_DECAY, momentum=config.CNN_MOMENTUM)
 
     def train(self, train_loader):
         self.model.train()
@@ -36,9 +36,9 @@ class CNNTrainer:
 
             print(f'Epoch [{epoch+1}/{self.num_epochs}], Loss: {running_loss/len(train_loader):.4f}')
 
-    def evaluate(self, test_loader):
+    def evaluate(self, test_loader, dataset_type):
         evaluator = Evaluator(self.model, self.device)
-        metrics = evaluator.evaluate(test_loader)
+        metrics = evaluator.evaluate(test_loader, dataset_type)
         return metrics
 
     def save_model(self, path):
