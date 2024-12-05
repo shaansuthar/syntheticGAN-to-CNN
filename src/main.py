@@ -15,7 +15,7 @@ def main():
     # Train the CNN on only CIFAR-10 dataset sup
     subprocess.run(["python", "./cnn/train.py", "--dataset", "cifar10"], check=True)
 
-    # Train the CNN on the Noisy CIFAR-10 dataset, TODO: might need to refactor the datasets logic in cnn to handle this
+    # Train the CNN on the Noisy CIFAR-10 dataset, TODO: might need to refactor the datasets logic in cnn to handle this hello
 
     # Perform evaluation on both models and compare the results
 
