@@ -2,26 +2,57 @@ import torch
 import config
 import subprocess
 
+import torch
+import os
+from config import NUM_CLASSES, DEVICE, BATCH_SIZE, MODEL_PATH
+
+# Import the GAN training function and the Generator model
+from gan.train import train_gan
+from gan.models import Generator
+
+# Import the CNN training function
+from cnn.train import train_cnn
+
+
 
 def main():
 
     # Train the GAN
-    subprocess.run(["python", "./gan/train.py"], check=True) # Note: generator model params saved as './models/generator.pt'
+    #subprocess.run(["python", "./gan/train.py"], check=True) # Note: generator model params saved as './models/generator.pt'
 
     # GAN generates x # of images for each class (maybe experiment with different values of x)
 
     # Create two datasets: CIFAR-10 and Noisy CIFAR-10 (with generated images)
 
     # Train the CNN on only CIFAR-10 dataset sup
-    subprocess.run(["python", "./cnn/train.py", "--dataset", "cifar10"], check=True)
+    #subprocess.run(["python", "./cnn/train.py", "--dataset", "cifar10"], check=True)
 
     # Train the CNN on the Noisy CIFAR-10 dataset, TODO: might need to refactor the datasets logic in cnn to handle this hello
 
     # Perform evaluation on both models and compare the results
 
+    train_gan()  # train gan
+
+    # Load the trained generator model
+    netG = Generator(num_classes=NUM_CLASSES)
+    netG.load_state_dict(torch.load(MODEL_PATH('generator.pt')))
+    netG.to(DEVICE)
+
+    # Generate synthetic images using the trained GAN
+    generate_images(netG)
+
+    # Train the CNN on only CIFAR-10 dataset
+    train_cnn('cifar10')
+
+    # Train the CNN on the synthetic dataset
+    train_cnn('synthetic')
+
+    # Train the CNN on the combined dataset
+    train_cnn('cifar10-synthetic')
+
+    # Evaluation here
+
     pass
-
-
 
 
 '''
