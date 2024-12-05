@@ -43,24 +43,4 @@ def load_only_synthetic():
 
 # TODO: Need to figure out SyntheticData structure
 def load_cifar10_synthetic():
-    # all_transforms = transforms.Compose([
-    #     transforms.Resize((32, 32)),
-    #     transforms.ToTensor(),
-    #     transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
-    #                          std=[0.2023, 0.1994, 0.2010])
-    # ])
-
-    # # Original CIFAR-10 dataset
-    # train_dataset = torchvision.datasets.CIFAR10(root='../../data',
-    #                                              train=True,
-    #                                              transform=all_transforms,
-    #                                              download=True)
-
-    # # Synthetic dataset
-    # synthetic_dataset = SyntheticDataset(root_dir=synthetic_root, transform=all_transforms)
-
-    # # Combine datasets
-    # combined_dataset = ConcatDataset([train_dataset, synthetic_dataset])
-
-    # train_loader = DataLoader(dataset=combined_dataset, batch_size=config.BATCH_SIZE, shuffle=True)
     return True

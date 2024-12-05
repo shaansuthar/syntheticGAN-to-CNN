@@ -19,6 +19,11 @@ beta1 = 0.5
 noise_level = 0.1
 num_classes = 10
 
+def train_gan():
+    netG, netD, train_loader, test_loader = preprocessing()
+    G_losses, D_losses = train_gan(netD, netG, train_loader)
+    evaluate(G_losses, D_losses, netG, test_loader)
+
 # Device configuration
 device = torch.device("mps" if torch.mps.is_available() else "cpu")
 print(f"Using device: {device}")
@@ -178,8 +183,3 @@ def evaluate(G_losses, D_losses, netG, test_loader):
     plt.ylabel("Loss")
     plt.legend()
     plt.savefig("../results/gan_training_losses.pdf")    
-
-if __name__ == "__main__":
-    netG, netD, train_loader, test_loader = preprocessing()
-    G_losses, D_losses = train_gan(netD, netG, train_loader)
-    evaluate(G_losses, D_losses, netG, test_loader)

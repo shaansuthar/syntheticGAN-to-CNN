@@ -13,6 +13,8 @@ import argparse
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
 
+def train_cnn(dataset):
+    run(dataset)
 
 def run(dataset):
 
@@ -81,14 +83,3 @@ def evaluate(model, test_loader, dataset):
         plt.savefig(config.CONFUSION_MATRIX_PATH(f'trained_with_{dataset}.png'))        
         
         return correct, total
-
-if __name__ == "__main__":
-    # initialize Argument Parser
-    parser = argparse.ArgumentParser()   
-
-    # add an argument to select which dataset to use
-    parser.add_argument("--dataset", type=str) 
-
-    args = parser.parse_args()
-
-    run(args.dataset)
