@@ -1,83 +1,76 @@
-import torch
-import config
-import subprocess
-
-import torch
 import os
-from config import NUM_CLASSES, DEVICE, BATCH_SIZE, MODEL_PATH
-
-# Import the GAN training function and the Generator model
-from gan.train import train_gan
-from gan.models import Generator
-
-# Import the CNN training function
-from cnn.train import train_cnn
-
-
+import config
+from data_processor.data_handler import CIFAR10Dataset, NoisyCIFAR10
+from data_processor.data_splitter import DataSplitter
+from data_processor.synthetic_data import generate_synthetic_data
+from cnn.cnn_trainer import CNNTrainer
+from gan.gan_trainer import GANTrainer
+from torch.utils.data import ConcatDataset
 
 def main():
+    print("Loading CIFAR-10 dataset...")
+    # Load CIFAR-10 dataset
+    data_handler = CIFAR10Dataset()
+    train_dataset = data_handler.dataset
+    test_dataset = data_handler.get_test_dataset()
 
+    print("Splitting dataset into 30k train and 20k unused...")
+    # Split the dataset into 30k and 20k subsets
+    data_splitter = DataSplitter(train_dataset)
+    truncated_dataset, _ = data_splitter.split_indices(len(train_dataset), [30000, 20000])
+
+    # Create datasets
+    train_30k_dataset = data_splitter.get_subset(truncated_dataset)
+    train_30k_loader = data_handler.get_dataloader(train_30k_dataset)
+
+    print("Training GAN on 30k real images...")
     # Train the GAN
-    #subprocess.run(["python", "./gan/train.py"], check=True) # Note: generator model params saved as './models/generator.pt'
+    noisy_train_dataset = NoisyCIFAR10(train_30k_dataset)
+    gan_trainer = GANTrainer()
+    G_losses, D_losses = gan_trainer.train(data_handler.get_dataloader(noisy_train_dataset)) # COME BACK AFTER LOOKING AT EVALUATOR
 
-    # GAN generates x # of images for each class (maybe experiment with different values of x)
+    print("Generating 20k synthetic images using the trained GAN...")
+    # Generate synthetic data
+    generator = gan_trainer.get_generator()
+    synthetic_dataset = generate_synthetic_data(generator, 20000)
+    synthetic_loader = data_handler.get_dataloader(synthetic_dataset)
 
-    # Create two datasets: CIFAR-10 and Noisy CIFAR-10 (with generated images)
+    print("Combining real and synthetic datasets...")
+    # Combine real and synthetic datasets
+    combined_dataset = ConcatDataset([train_30k_dataset, synthetic_dataset])
+    combined_loader = data_handler.get_dataloader(combined_dataset)
 
-    # Train the CNN on only CIFAR-10 dataset sup
-    #subprocess.run(["python", "./cnn/train.py", "--dataset", "cifar10"], check=True)
+    print("Training CNN on 30k real images...")
+    # Train CNN on real data
+    cnn_trainer_real = CNNTrainer()
+    cnn_trainer_real.train(train_30k_loader)
+    print("Evaluating CNN trained on real data...")
+    metrics_real = cnn_trainer_real.evaluate(data_handler.get_dataloader(test_dataset, shuffle=False))
+    cnn_trainer_real.save_model(os.path.join(config.MODEL_DIR, 'cnn_real.pth'))
 
-    # Train the CNN on the Noisy CIFAR-10 dataset, TODO: might need to refactor the datasets logic in cnn to handle this hello
+    print("Training CNN on 20k synthetic images...")
+    # Train CNN on synthetic data
+    cnn_trainer_synth = CNNTrainer()
+    cnn_trainer_synth.train(synthetic_loader)
+    print("Evaluating CNN trained on synthetic data...")
+    metrics_synth = cnn_trainer_synth.evaluate(data_handler.get_dataloader(test_dataset, shuffle=False))
+    cnn_trainer_synth.save_model(os.path.join(config.MODEL_DIR, 'cnn_synth.pth'))
 
-    # Perform evaluation on both models and compare the results
+    print("Training CNN on combined real and synthetic data...")
+    # Train CNN on combined data
+    cnn_trainer_combined = CNNTrainer()
+    cnn_trainer_combined.train(combined_loader)
+    print("Evaluating CNN trained on combined data...")
+    metrics_combined = cnn_trainer_combined.evaluate(data_handler.get_dataloader(test_dataset, shuffle=False))
+    cnn_trainer_combined.save_model(os.path.join(config.MODEL_DIR, 'cnn_combined.pth'))
 
-    train_gan()  # train gan
-
-    # Load the trained generator model
-    netG = Generator(num_classes=NUM_CLASSES)
-    netG.load_state_dict(torch.load(MODEL_PATH('generator.pt')))
-    netG.to(DEVICE)
-
-    # Generate synthetic images using the trained GAN
-    generate_images(netG)
-
-    # Train the CNN on only CIFAR-10 dataset
-    train_cnn('cifar10')
-
-    # Train the CNN on the synthetic dataset
-    train_cnn('synthetic')
-
-    # Train the CNN on the combined dataset
-    train_cnn('cifar10-synthetic')
-
-    # Evaluation here
-
-    pass
-
-
-'''
-Using the trained generator to synthesize denoised images
-'''
-def generate_images(netG):
-    print("Generating synthetic images...")
-    netG.eval()
-    synthetic_images = []
-    synthetic_labels = []
-    with torch.no_grad():
-        for class_label in range(config.NUM_CLASSES):
-            print(f"Generating images for class {class_label}")
-            num_samples = 5000  # Number of images to generate per class
-            for _ in range(num_samples // config.NUM_CLASSES):
-                # Generate noisy images
-                noisy_batch = torch.randn(config.BATCH_SIZE, 3, 32, 32).to(config.DEVICE)
-                labels_batch = torch.full((config.BATCH_SIZE,), class_label, dtype=torch.long).to(config.DEVICE)
-                fake_images = netG(noisy_batch, labels_batch)
-                synthetic_images.append(fake_images.cpu())
-                synthetic_labels.extend([class_label] * config.BATCH_SIZE)
-
-    # Stack synthetic images and labels
-    synthetic_images = torch.cat(synthetic_images)
-    synthetic_labels = torch.tensor(synthetic_labels)    
+    # Output evaluation metrics
+    print("Evaluation on real data:")
+    print(metrics_real)
+    print("Evaluation on synthetic data:")
+    print(metrics_synth)
+    print("Evaluation on combined data:")
+    print(metrics_combined)
 
 if __name__ == "__main__":
     main()

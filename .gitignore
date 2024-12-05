@@ -1,3 +1,7 @@
 venv/
 data/
 __pycache__/
+results/
+models/
+*.pt
+*.pth

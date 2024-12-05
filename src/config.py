@@ -1,5 +1,19 @@
 import torch
 
-NUM_CLASSES=10
-BATCH_SIZE=64
-DEVICE='cuda' if torch.cuda.is_available() else 'mps'
+# General Configurations
+DEVICE = torch.device('mps' if torch.mps.is_available() else 'cpu')
+NUM_CLASSES = 10
+BATCH_SIZE = 100
+
+# Paths
+DATA_DIR = '../data'
+MODEL_DIR = '../models'
+RESULTS_DIR = '../results'
+
+# Hyperparameters
+CNN_LEARNING_RATE = 0.001
+CNN_NUM_EPOCHS = 1
+NOISE_LEVEL = 0.1
+GAN_LEARNING_RATE = 0.0002
+GAN_NUM_EPOCHS = 1
+GAN_BETA1 = 0.5
