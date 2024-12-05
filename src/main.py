@@ -12,7 +12,7 @@ def main():
 
     # Create two datasets: CIFAR-10 and Noisy CIFAR-10 (with generated images)
 
-    # Train the CNN on only CIFAR-10 dataset
+    # Train the CNN on only CIFAR-10 dataset sup
     subprocess.run(["python", "./cnn/train.py", "--dataset", "cifar10"], check=True)
 
     # Train the CNN on the Noisy CIFAR-10 dataset, TODO: might need to refactor the datasets logic in cnn to handle this
@@ -20,6 +20,9 @@ def main():
     # Perform evaluation on both models and compare the results
 
     pass
+
+
+
 
 '''
 Using the trained generator to synthesize denoised images
