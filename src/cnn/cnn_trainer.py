@@ -16,25 +16,24 @@ class CNNTrainer:
                                    weight_decay=config.CNN_OPT_WEIGHT_DECAY, momentum=config.CNN_MOMENTUM)
 
     def train(self, train_loader):
-        self.model.train()
-        for epoch in range(self.num_epochs):
-            running_loss = 0.0
-            for i, (images, labels) in enumerate(train_loader):
+        for epoch in range(config.CNN_NUM_EPOCHS):
+        # Load in the data in batches using the train_loader object
+            for i, (images, labels) in enumerate(train_loader):  
+                
+                # Move tensors to the configured device
                 images = images.to(self.device)
                 labels = labels.to(self.device)
-
-                # Zero the parameter gradients
-                self.optimizer.zero_grad()
-
-                # Forward + backward + optimize
+                
+                # Forward pass
                 outputs = self.model(images)
                 loss = self.criterion(outputs, labels)
+                
+                # Backward and optimize
+                self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
-                running_loss += loss.item()
-
-            print(f'Epoch [{epoch+1}/{self.num_epochs}], Loss: {running_loss/len(train_loader):.4f}')
+            print('Epoch [{}/{}], Loss: {:.4f}'.format(epoch+1, config.CNN_NUM_EPOCHS, loss.item()))
 
     def evaluate(self, test_loader, dataset_type):
         evaluator = Evaluator(self.model, self.device)
