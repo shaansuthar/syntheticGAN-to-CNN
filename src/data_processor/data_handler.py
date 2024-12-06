@@ -10,8 +10,7 @@ class CIFAR10Dataset:
         self.transform = transform or transforms.Compose([
             transforms.Resize((32, 32)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                                 std=[0.5, 0.5, 0.5])
+            transforms.Normalize((0.5,), (0.5,))
         ])
         self.dataset = CIFAR10(root=root, train=True, download=True, transform=self.transform)
         self.test_dataset = CIFAR10(root=root, train=False, download=True, transform=self.transform)
@@ -41,6 +40,6 @@ class NoisyCIFAR10(Dataset):
         # Add Gaussian noise
         noise = torch.randn_like(clean_image) * self.noise_level
         noisy_image = clean_image + noise
-        # Clamp to [0, 1]
-        noisy_image = torch.clamp(noisy_image, 0., 1.)
+        # Clamp to [-1, 1]
+        noisy_image = torch.clamp(noisy_image, -1., 1.)
         return noisy_image, label, clean_image
