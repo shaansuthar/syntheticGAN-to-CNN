@@ -10,7 +10,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from training import CNN
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps")
+DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSES = 10
 RESULTS_DIR = './results'
 
@@ -27,7 +27,7 @@ def main():
         model.to(DEVICE)
         model.eval()
         print(f"Evaluating model: {model_file[:-4].upper()}")
-        evaluate(model, test_loader)
+        evaluate(model, test_loader, model_file[:-4])
 
 def load_test_data():
     transform = transforms.Compose([
@@ -40,7 +40,7 @@ def load_test_data():
 
     return test_loader
 
-def evaluate(model, test_loader):
+def evaluate(model, test_loader, model_name):
     # Evaluate on test set
     y_true = []
     y_pred = []
@@ -68,8 +68,8 @@ def evaluate(model, test_loader):
                 yticklabels=range(NUM_CLASSES))
     plt.ylabel('Actual')
     plt.xlabel('Predicted')
-    plt.savefig(os.path.join(RESULTS_DIR, 'test_confusion_matrix.png'))
-    plt.close()    
+    plt.savefig(os.path.join(RESULTS_DIR, f'{model_name}_confusion_matrix.png'))
+    plt.close()
 
 if __name__ == "__main__":
     main()

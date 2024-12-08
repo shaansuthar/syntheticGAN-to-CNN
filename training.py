@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as transforms
-from torch.utils.data import Dataset, DataLoader, random_split, Subset, ConcatDataset
+from torch.utils.data import Dataset, DataLoader, random_split, ConcatDataset
 from torchvision.datasets import CIFAR10
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,7 +14,7 @@ import seaborn as sns
 #############################
 # Configuration and Hyperparameters
 #############################
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps")
+DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSES = 10
 BATCH_SIZE = 100
 DATA_DIR = './data'
@@ -23,16 +23,17 @@ RESULTS_DIR = './results'
 
 # CNN Hyperparameters
 CNN_LEARNING_RATE = 0.001
-CNN_NUM_EPOCHS = 1  # Reduced for example; originally it was 30
+CNN_NUM_EPOCHS = 20
 CNN_OPT_WEIGHT_DECAY = 0.005
 CNN_MOMENTUM = 0.9
 
 # GAN Hyperparameters
-NOISE_LEVEL = 0.1
 GAN_LEARNING_RATE = 0.0002
-GAN_NUM_EPOCHS = 1  # Reduced for example; originally it was 10
+GAN_NUM_EPOCHS = 50
 GAN_BETA1 = 0.5
 GAN_BETA2 = 0.999
+LATENT_DIM = 100
+EMBEDDING_DIM = 100
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -144,15 +145,10 @@ class CIFAR10Dataset:
         self.transform = transform or transforms.Compose([
             transforms.Resize((32, 32)),
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,))
+            transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
         ])
         self.dataset = CIFAR10(root=root, train=True, download=True, transform=self.transform)
         self.test_dataset = CIFAR10(root=root, train=False, download=True, transform=self.transform)
-
-    def get_train_val_split(self, train_size=0.8):
-        train_length = int(len(self.dataset) * train_size)
-        val_length = len(self.dataset) - train_length
-        return random_split(self.dataset, [train_length, val_length])
 
     def get_test_dataset(self):
         return self.test_dataset
@@ -160,43 +156,8 @@ class CIFAR10Dataset:
     def get_dataloader(self, dataset, batch_size=BATCH_SIZE, shuffle=True):
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
-class NoisyCIFAR10(Dataset):
-    def __init__(self, dataset, noise_level=NOISE_LEVEL):
-        self.dataset = dataset
-        self.noise_level = noise_level
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, idx):
-        clean_image, label = self.dataset[idx]
-        # Add Gaussian noise
-        noise = torch.randn_like(clean_image) * self.noise_level
-        noisy_image = clean_image + noise
-        # Clamp to [-1, 1]
-        noisy_image = torch.clamp(noisy_image, -1., 1.)
-        return noisy_image, label, clean_image
-
-class DataSplitter:
-    def __init__(self, dataset):
-        self.dataset = dataset
-
-    def get_subset(self, indices):
-        return Subset(self.dataset, indices)
-
-    def split_indices(self, total_size, split_sizes):
-        indices = list(range(total_size))
-        np.random.shuffle(indices)
-        splits = []
-        start = 0
-        for size in split_sizes:
-            end = start + size
-            splits.append(indices[start:end])
-            start = end
-        return splits
-
 #############################
-# Synthetic Data Generation (from GAN)
+# Synthetic Dataset
 #############################
 class SyntheticDataset(Dataset):
     def __init__(self, images, labels):
@@ -210,6 +171,10 @@ class SyntheticDataset(Dataset):
         return self.images[idx], self.labels[idx]
 
 def visualize_batch(images, labels, num_samples=10):
+    """
+    Displays a set of images and their labels in a grid.
+    Note: This shows the plot directly. For saving plots, you may use plt.savefig.
+    """
     if len(images) > num_samples:
         indices = np.random.choice(len(images), num_samples, replace=False)
         images = images[indices]
@@ -220,26 +185,55 @@ def visualize_batch(images, labels, num_samples=10):
                    'dog', 'frog', 'horse', 'ship', 'truck']
 
     for idx, (ax, img, label) in enumerate(zip(axes.flat, images, labels)):
-        img = (img + 1) / 2.0
+        img = (img * 0.5) + 0.5  # reverse normalization: [-1,1] -> [0,1]
         img = img.permute(1, 2, 0).numpy()
         ax.imshow(img)
         ax.axis('off')
         ax.set_title(f'{class_names[label]}')
 
     plt.tight_layout()
-    plt.show()
 
-def generate_synthetic_data(generator, num_samples, show_samples=False):
+def visualize_each_class(synthetic_dataset, samples_per_class=5):
+    """
+    Visualize a few generated images from each class in a single plot.
+    We'll create a figure with NUM_CLASSES rows and samples_per_class columns.
+    """
+    class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer',
+                   'dog', 'frog', 'horse', 'ship', 'truck']
+
+    fig, axes = plt.subplots(NUM_CLASSES, samples_per_class, figsize=(samples_per_class*3, NUM_CLASSES*3))
+    for c in range(NUM_CLASSES):
+        class_indices = [i for i, lbl in enumerate(synthetic_dataset.labels) if lbl == c]
+        # Take the first `samples_per_class` images of this class
+        sample_indices = class_indices[:samples_per_class]
+        sample_images = synthetic_dataset.images[sample_indices]
+        sample_labels = [synthetic_dataset.labels[i] for i in sample_indices]
+
+        for j, (img, lbl) in enumerate(zip(sample_images, sample_labels)):
+            ax = axes[c, j]
+            img = (img * 0.5) + 0.5
+            img = img.permute(1, 2, 0).numpy()
+            ax.imshow(img)
+            ax.axis('off')
+            if j == 0:
+                ax.set_ylabel(class_names[c], rotation=90, size='large')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, 'generated_images_per_class.png'))
+    plt.close()
+
+def generate_synthetic_data(generator, num_samples, device=DEVICE, latent_dim=LATENT_DIM, show_samples=False):
     generator.eval()
     synthetic_images = []
     synthetic_labels = []
+    num_samples_per_class = num_samples // NUM_CLASSES
+
     with torch.no_grad():
         for class_label in range(NUM_CLASSES):
-            num_samples_per_class = num_samples // NUM_CLASSES
             for _ in range(num_samples_per_class // BATCH_SIZE):
-                noisy_batch = torch.randn(BATCH_SIZE, 3, 32, 32).to(DEVICE)
-                labels_batch = torch.full((BATCH_SIZE,), class_label, dtype=torch.long).to(DEVICE)
-                fake_images = generator(noisy_batch, labels_batch)
+                z = torch.randn(BATCH_SIZE, latent_dim, device=device)
+                labels_batch = torch.full((BATCH_SIZE,), class_label, dtype=torch.long, device=device)
+                fake_images, _ = generator(z, labels_batch)
                 synthetic_images.append(fake_images.cpu())
                 synthetic_labels.extend([class_label] * BATCH_SIZE)
 
@@ -248,151 +242,182 @@ def generate_synthetic_data(generator, num_samples, show_samples=False):
 
     if show_samples:
         visualize_batch(synthetic_images, synthetic_labels)
+        plt.show()
+
     return synthetic_dataset
 
 #############################
-# GAN Models
+# ACGAN Models
 #############################
-embedding_dim = 50
-
-class Generator(nn.Module):
-    def __init__(self, num_classes=NUM_CLASSES, nz=3):
-        super(Generator, self).__init__()
-        self.nz = nz
-        self.label_emb = nn.Embedding(num_classes, embedding_dim)
-        self.main = nn.Sequential(
-            nn.Conv2d(self.nz + embedding_dim, 64, 4, 2, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 256, 4, 2, 1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(256, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(128, 64, 4, 2, 1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(64, 3, 4, 2, 1),
-            nn.Tanh()
-        )
-
-    def forward(self, x, labels):
-        label_emb = self.label_emb(labels)
-        label_emb = label_emb.unsqueeze(2).unsqueeze(3)
-        label_emb = label_emb.expand(-1, -1, x.size(2), x.size(3))
-        x = torch.cat([x, label_emb], 1)
-        return self.main(x)
-
-class Discriminator(nn.Module):
-    def __init__(self, num_classes=NUM_CLASSES):
-        super(Discriminator, self).__init__()
-        self.label_emb = nn.Embedding(num_classes, embedding_dim)
-        self.main = nn.Sequential(
-            nn.Conv2d(3 + embedding_dim, 64, 4, 2, 1),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(128, 256, 4, 2, 1),
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Flatten(),
-            nn.Linear(256 * 4 * 4, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x, labels):
-        label_emb = self.label_emb(labels)
-        label_emb = label_emb.unsqueeze(2).unsqueeze(3)
-        label_emb = label_emb.expand(-1, -1, x.size(2), x.size(3))
-        x = torch.cat([x, label_emb], 1)
-        return self.main(x)
-
 def weights_init(m):
     if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
         nn.init.normal_(m.weight.data, 0.0, 0.02)
 
+class ACGANGenerator(nn.Module):
+    def __init__(self, num_classes=NUM_CLASSES, latent_dim=LATENT_DIM, embed_dim=EMBEDDING_DIM):
+        super(ACGANGenerator, self).__init__()
+        self.num_classes = num_classes
+        self.latent_dim = latent_dim
+        self.embed_dim = embed_dim
+
+        self.label_emb = nn.Embedding(num_classes, embed_dim)
+
+        self.init_size = 4
+        self.fc = nn.Sequential(
+            nn.Linear(latent_dim + embed_dim, 256 * self.init_size * self.init_size),
+            nn.BatchNorm1d(256 * self.init_size * self.init_size),
+            nn.ReLU(True)
+        )
+
+        self.main = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False), # 8x8
+            nn.BatchNorm2d(128),
+            nn.ReLU(True),
+
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),  # 16x16
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+
+            nn.ConvTranspose2d(64, 3, 4, 2, 1, bias=False),     # 32x32
+            nn.Tanh()
+        )
+
+    def forward(self, z, labels):
+        c = self.label_emb(labels)        # [B, embed_dim]
+        x = torch.cat([z, c], 1)          # [B, latent_dim+embed_dim]
+        out = self.fc(x)                  # [B, 256*4*4]
+        out = out.view(out.size(0), 256, self.init_size, self.init_size)
+        img = self.main(out)              # [B, 3, 32,32]
+        return img, labels
+
+class ACGANDiscriminator(nn.Module):
+    def __init__(self, num_classes=NUM_CLASSES, embed_dim=EMBEDDING_DIM):
+        super(ACGANDiscriminator, self).__init__()
+        self.num_classes = num_classes
+        self.img_size = 32
+
+        self.main = nn.Sequential(
+            nn.Conv2d(3, 64, 4, 2, 1),  
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Conv2d(64, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+
+        # After main, feature map is 4x4, 256 channels.
+        self.feature_size = 256*4*4
+
+        # Real/Fake head
+        self.adv_head = nn.Linear(self.feature_size, 1)
+
+        # Class head
+        self.aux_head = nn.Linear(self.feature_size, num_classes)
+
+    def forward(self, img):
+        features = self.main(img)
+        features = features.view(features.size(0), -1)
+        validity = self.adv_head(features)
+        class_logits = self.aux_head(features)
+        return validity, class_logits
+
 #############################
-# GAN Trainer
+# ACGAN Trainer
 #############################
-class GANTrainer:
-    def __init__(self, noise_level=NOISE_LEVEL, device=DEVICE,
+class ACGANTrainer:
+    def __init__(self, device=DEVICE,
                  learning_rate=GAN_LEARNING_RATE, beta1=GAN_BETA1, beta2=GAN_BETA2, num_epochs=GAN_NUM_EPOCHS):
         self.device = device
         self.num_epochs = num_epochs
-        self.noise_level = noise_level
-        self.netG = Generator().to(self.device)
-        self.netD = Discriminator().to(self.device)
+        self.netG = ACGANGenerator(num_classes=NUM_CLASSES, latent_dim=LATENT_DIM, embed_dim=EMBEDDING_DIM).to(self.device)
+        self.netD = ACGANDiscriminator(num_classes=NUM_CLASSES, embed_dim=EMBEDDING_DIM).to(self.device)
         self.netG.apply(weights_init)
         self.netD.apply(weights_init)
-        self.criterion = nn.BCELoss()
+
+        self.criterion_gan = nn.BCEWithLogitsLoss()
+        self.criterion_aux = nn.CrossEntropyLoss()
+
         self.optimizerD = optim.Adam(self.netD.parameters(), lr=learning_rate, betas=(beta1, beta2))
         self.optimizerG = optim.Adam(self.netG.parameters(), lr=learning_rate, betas=(beta1, beta2))
-        self.real_label = 1.
-        self.fake_label = 0.
 
     def train(self, train_loader):
         G_losses = []
         D_losses = []
-        print("Starting GAN Training...")
+
+        print("Starting ACGAN Training...")
         for epoch in range(self.num_epochs):
-            for i, data in enumerate(train_loader, 0):
-                # Update D
-                self.netD.zero_grad()
-                noisy_images, labels, real_images = data
-                noisy_images = noisy_images.to(self.device)
-                real_images = real_images.to(self.device)
-                labels = labels.to(self.device)
+            for i, (real_images, labels) in enumerate(train_loader):
+                real_images, labels = real_images.to(self.device), labels.to(self.device)
                 b_size = real_images.size(0)
-                label_real = torch.full((b_size,), self.real_label, dtype=torch.float, device=self.device)
-                label_fake = torch.full((b_size,), self.fake_label, dtype=torch.float, device=self.device)
 
-                output_real = self.netD(real_images, labels).view(-1)
-                lossD_real = self.criterion(output_real, label_real)
-                lossD_real.backward()
+                # Create real/fake labels for adversarial loss
+                valid = torch.full((b_size,), 1.0, device=self.device)
+                fake = torch.full((b_size,), 0.0, device=self.device)
 
-                fake_images = self.netG(noisy_images, labels)
-                output_fake = self.netD(fake_images.detach(), labels).view(-1)
-                lossD_fake = self.criterion(output_fake, label_fake)
-                lossD_fake.backward()
+                ##############################################
+                # (1) Train Discriminator
+                ##############################################
+                self.netD.zero_grad()
+
+                # Forward pass real images
+                validity_real, class_logits_real = self.netD(real_images)
+                validity_real = validity_real.view(-1)
+                d_real_loss = self.criterion_gan(validity_real, valid)
+                d_real_class_loss = self.criterion_aux(class_logits_real, labels)
+
+                # Generate fake images
+                z = torch.randn(b_size, LATENT_DIM, device=self.device)
+                gen_labels = torch.randint(0, NUM_CLASSES, (b_size,), device=self.device)
+                fake_images, _ = self.netG(z, gen_labels)
+
+                # Forward pass fake images
+                validity_fake, class_logits_fake = self.netD(fake_images.detach())
+                validity_fake = validity_fake.view(-1)
+                d_fake_loss = self.criterion_gan(validity_fake, fake)
+
+                d_loss = d_real_loss + d_fake_loss + d_real_class_loss
+                d_loss.backward()
                 self.optimizerD.step()
 
-                # Update G
+                ##############################################
+                # (2) Train Generator
+                ##############################################
                 self.netG.zero_grad()
-                fake_images = self.netG(noisy_images, labels)
-                output_fake_for_G = self.netD(fake_images, labels).view(-1)
-                lossG_adv = self.criterion(output_fake_for_G, label_real)
-                lossG_L1 = nn.L1Loss()(fake_images, real_images) * 100
-                lossG = lossG_adv + lossG_L1
-                lossG.backward()
+                validity_fake_for_g, class_logits_fake_for_g = self.netD(fake_images)
+                validity_fake_for_g = validity_fake_for_g.view(-1)
+
+                g_adv_loss = self.criterion_gan(validity_fake_for_g, valid)
+                g_class_loss = self.criterion_aux(class_logits_fake_for_g, gen_labels)
+                g_loss = g_adv_loss + g_class_loss
+                g_loss.backward()
                 self.optimizerG.step()
 
-                G_losses.append(lossG.item())
-                D_losses.append((lossD_real + lossD_fake).item())
+                G_losses.append(g_loss.item())
+                D_losses.append(d_loss.item())
 
                 if i % 100 == 0:
-                    print(f'[{epoch}/{self.num_epochs}][{i}/{len(train_loader)}] '
-                          f'Loss_D: {(lossD_real + lossD_fake):.4f} Loss_G: {lossG:.4f}')
+                    print(f'[{epoch+1}/{self.num_epochs}][{i}/{len(train_loader)}] Loss_D: {d_loss:.4f} Loss_G: {g_loss:.4f}')
 
-        # Save the generator model
-        torch.save(self.netG.state_dict(), os.path.join(MODEL_DIR, 'generator.pt'))
+        torch.save(self.netG.state_dict(), os.path.join(MODEL_DIR, 'acgan_generator.pt'))
         return G_losses, D_losses
 
     def get_generator(self):
         return self.netG
 
     def plot_gan_losses(self, G_losses, D_losses):
-        plt.figure()
-        plt.title("Generator and Discriminator Loss During Training")
-        plt.plot(G_losses, label="G")
-        plt.plot(D_losses, label="D")
+        plt.figure(figsize=(10,5))
+        plt.title("ACGAN Training Losses")
+        plt.plot(G_losses, label="G Loss")
+        plt.plot(D_losses, label="D Loss")
         plt.xlabel("Iterations")
         plt.ylabel("Loss")
         plt.legend()
-        plt.savefig(f"{RESULTS_DIR}/gan_training_losses.pdf")
+        plt.savefig(os.path.join(RESULTS_DIR, 'acgan_loss_plot.png'))
+        plt.close()
 
 #############################
 # CNN Trainer
@@ -406,10 +431,13 @@ class CNNTrainer:
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate,
                                    weight_decay=CNN_OPT_WEIGHT_DECAY, momentum=CNN_MOMENTUM)
+        self.train_losses = []
 
     def train(self, train_loader):
+        self.train_losses = []
         for epoch in range(self.num_epochs):
             self.model.train()
+            running_loss = 0.0
             for i, (images, labels) in enumerate(train_loader):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
@@ -418,7 +446,10 @@ class CNNTrainer:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-            print('Epoch [{}/{}], Loss: {:.4f}'.format(epoch+1, self.num_epochs, loss.item()))
+                running_loss += loss.item()
+            epoch_loss = running_loss / len(train_loader)
+            self.train_losses.append(epoch_loss)
+            print('Epoch [{}/{}], Loss: {:.4f}'.format(epoch+1, self.num_epochs, epoch_loss))
 
     def evaluate(self, test_loader, dataset_type):
         evaluator = Evaluator(self.model, self.device)
@@ -438,25 +469,55 @@ def main():
     train_dataset = data_handler.dataset
     test_dataset = data_handler.get_test_dataset()
 
-    print("Splitting dataset into 30k train and 20k unused...")
-    data_splitter = DataSplitter(train_dataset)
-    truncated_dataset_indices, unused_dataset_indices = data_splitter.split_indices(len(train_dataset), [30000, 20000])
-    train_30k_dataset = data_splitter.get_subset(truncated_dataset_indices)
+    # We'll use a 30k subset of the training data
+    total_length = len(train_dataset)
+    indices = list(range(total_length))
+    np.random.shuffle(indices)
+    train_30k_indices = indices[:30000]
+    train_30k_dataset = torch.utils.data.Subset(train_dataset, train_30k_indices)
+
     train_30k_loader = data_handler.get_dataloader(train_30k_dataset)
-    train_full_loader = data_handler.get_dataloader(train_dataset)
     test_loader = data_handler.get_dataloader(test_dataset, shuffle=False)
+    train_full_loader = data_handler.get_dataloader(train_dataset)
 
-    # Train GAN
-    print("Training GAN on 30k real images...")
-    noisy_train_dataset = NoisyCIFAR10(train_30k_dataset)
-    gan_trainer = GANTrainer()
-    G_losses, D_losses = gan_trainer.train(data_handler.get_dataloader(noisy_train_dataset))
-    gan_trainer.plot_gan_losses(G_losses, D_losses)
+    # Train ACGAN on 30k real images
+    print("Training ACGAN on 30k real images...")
+    acgan_trainer = ACGANTrainer()
+    G_losses, D_losses = acgan_trainer.train(train_30k_loader)
+    acgan_trainer.plot_gan_losses(G_losses, D_losses)
 
-    # Generate synthetic data
-    print("Generating 20k synthetic images using the trained GAN...")
-    generator = gan_trainer.get_generator()
-    synthetic_dataset = generate_synthetic_data(generator, 20000, show_samples=False)
+    # Generate synthetic data using the ACGAN
+    print("Generating 20k synthetic images using the trained ACGAN...")
+    def generate_acgan_data(generator, num_samples, device=DEVICE, latent_dim=LATENT_DIM, show_samples=False):
+        generator.eval()
+        synthetic_images = []
+        synthetic_labels = []
+        num_samples_per_class = num_samples // NUM_CLASSES
+
+        with torch.no_grad():
+            for class_label in range(NUM_CLASSES):
+                for _ in range(num_samples_per_class // BATCH_SIZE):
+                    z = torch.randn(BATCH_SIZE, latent_dim, device=device)
+                    labels_batch = torch.full((BATCH_SIZE,), class_label, dtype=torch.long, device=device)
+                    fake_images, _ = generator(z, labels_batch)
+                    synthetic_images.append(fake_images.cpu())
+                    synthetic_labels.extend([class_label] * BATCH_SIZE)
+
+        synthetic_images = torch.cat(synthetic_images)
+        synthetic_dataset = SyntheticDataset(synthetic_images, synthetic_labels)
+
+        if show_samples:
+            visualize_batch(synthetic_images, synthetic_labels)
+            plt.show()
+
+        return synthetic_dataset
+
+    generator = acgan_trainer.get_generator()
+    synthetic_dataset = generate_acgan_data(generator, 20000, device=DEVICE, show_samples=False)
+
+    # Visualize a few generated images from each class and save as a single plot
+    print("Visualizing generated images from each class...")
+    visualize_each_class(synthetic_dataset, samples_per_class=5)
 
     # Combine real and synthetic datasets
     print("Combining real and synthetic datasets...")
@@ -467,19 +528,32 @@ def main():
     print("Training CNN on 30k real images...")
     cnn_trainer_30k_real = CNNTrainer()
     cnn_trainer_30k_real.train(train_30k_loader)
-    torch.save(cnn_trainer_30k_real.model.state_dict(), os.path.join(MODEL_DIR, 'cnn_30k_real.pkl'))
+    cnn_trainer_30k_real.save_model(os.path.join(MODEL_DIR, 'cnn_30k_real.pkl'))
 
     # Train CNN on combined data
     print("Training CNN on combined 30k real and 20k synthetic data...")
     cnn_trainer_combined = CNNTrainer()
     cnn_trainer_combined.train(combined_loader)
-    torch.save(cnn_trainer_combined.model.state_dict(), os.path.join(MODEL_DIR, 'cnn_combined.pkl'))
+    cnn_trainer_combined.save_model(os.path.join(MODEL_DIR, 'cnn_combined.pkl'))
 
     # Train CNN on full 50k real data
     print("Training CNN on 50k real images...")
     cnn_trainer_full_real = CNNTrainer()
     cnn_trainer_full_real.train(train_full_loader)
-    torch.save(cnn_trainer_full_real.model.state_dict(), os.path.join(MODEL_DIR, 'cnn_full_real.pkl'))
+    cnn_trainer_full_real.save_model(os.path.join(MODEL_DIR, 'cnn_full_real.pkl'))
+
+    # Plot training losses for all three CNNs on a single plot
+    print("Plotting CNN training losses for all three conditions...")
+    plt.figure(figsize=(10,5))
+    plt.title("CNN Training Losses")
+    plt.plot(cnn_trainer_30k_real.train_losses, label="30k Real")
+    plt.plot(cnn_trainer_combined.train_losses, label="30k Real + 20k Synthetic")
+    plt.plot(cnn_trainer_full_real.train_losses, label="Full 50k Real")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(os.path.join(RESULTS_DIR, 'cnn_all_losses_plot.png'))
+    plt.close()
 
 if __name__ == "__main__":
     main()
