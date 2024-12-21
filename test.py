@@ -8,11 +8,7 @@ import os
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from training import CNN
-
-DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
-NUM_CLASSES = 10
-RESULTS_DIR = './results'
+from training import CNN, NUM_CLASSES, DEVICE, RESULTS_DIR
 
 def main():
     # load test data
@@ -23,17 +19,18 @@ def main():
     for model_file in model_files:
         model_path = os.path.join('./models', model_file)
         model = CNN(num_classes=NUM_CLASSES)
-        model.load_state_dict(torch.load(model_path, weights_only=True))
+        model.load_state_dict(torch.load(model_path, weights_only=True, map_location=DEVICE))
         model.to(DEVICE)
         model.eval()
         print(f"Evaluating model: {model_file[:-4].upper()}")
         evaluate(model, test_loader, model_file[:-4])
 
 def load_test_data():
+    # Three-channel normalization
     transform = transforms.Compose([
         transforms.Resize((32, 32)),
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
+        transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
     ])
     test_dataset = CIFAR10(root='./data', train=False, download=True, transform=transform)
     test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
@@ -53,13 +50,12 @@ def evaluate(model, test_loader, model_name):
             y_pred.extend(predicted.cpu().numpy())
 
     accuracy = accuracy_score(y_true, y_pred)
-    report = classification_report(y_true, y_pred, zero_division=0, output_dict=True)
+    report = classification_report(y_true, y_pred, zero_division=0)
     cm = confusion_matrix(y_true, y_pred)
 
     print("Test Accuracy:", accuracy)
-    print("Classification Report:\n", classification_report(y_true, y_pred, zero_division=0))
+    print("Classification Report:\n", report)
     
-    # Plot confusion matrix for test
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR)
     plt.figure(figsize=(10, 8))
@@ -73,4 +69,3 @@ def evaluate(model, test_loader, model_name):
 
 if __name__ == "__main__":
     main()
-

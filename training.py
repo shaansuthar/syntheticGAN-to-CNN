@@ -28,11 +28,11 @@ CNN_OPT_WEIGHT_DECAY = 0.005
 CNN_MOMENTUM = 0.9
 
 # GAN Hyperparameters
-GAN_LEARNING_RATE = 0.0002
+GAN_LEARNING_RATE = 0.0001
 GAN_NUM_EPOCHS = 50
 GAN_BETA1 = 0.5
 GAN_BETA2 = 0.999
-LATENT_DIM = 100
+LATENT_DIM = 128
 EMBEDDING_DIM = 100
 
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -142,13 +142,24 @@ class Evaluator:
 #############################
 class CIFAR10Dataset:
     def __init__(self, root=DATA_DIR, transform=None):
+        # Added data augmentation to improve GAN input diversity
         self.transform = transform or transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05),
             transforms.Resize((32, 32)),
             transforms.ToTensor(),
             transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
         ])
         self.dataset = CIFAR10(root=root, train=True, download=True, transform=self.transform)
-        self.test_dataset = CIFAR10(root=root, train=False, download=True, transform=self.transform)
+
+        # Test set uses standard normalization since we do not want to augment test data.
+        self.test_transform = transforms.Compose([
+            transforms.Resize((32, 32)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
+        ])
+        self.test_dataset = CIFAR10(root=root, train=False, download=True, transform=self.test_transform)
 
     def get_test_dataset(self):
         return self.test_dataset
@@ -171,10 +182,6 @@ class SyntheticDataset(Dataset):
         return self.images[idx], self.labels[idx]
 
 def visualize_batch(images, labels, num_samples=10):
-    """
-    Displays a set of images and their labels in a grid.
-    Note: This shows the plot directly. For saving plots, you may use plt.savefig.
-    """
     if len(images) > num_samples:
         indices = np.random.choice(len(images), num_samples, replace=False)
         images = images[indices]
@@ -185,7 +192,7 @@ def visualize_batch(images, labels, num_samples=10):
                    'dog', 'frog', 'horse', 'ship', 'truck']
 
     for idx, (ax, img, label) in enumerate(zip(axes.flat, images, labels)):
-        img = (img * 0.5) + 0.5  # reverse normalization: [-1,1] -> [0,1]
+        img = (img * 0.5) + 0.5  # reverse normalization
         img = img.permute(1, 2, 0).numpy()
         ax.imshow(img)
         ax.axis('off')
@@ -194,17 +201,12 @@ def visualize_batch(images, labels, num_samples=10):
     plt.tight_layout()
 
 def visualize_each_class(synthetic_dataset, samples_per_class=5):
-    """
-    Visualize a few generated images from each class in a single plot.
-    We'll create a figure with NUM_CLASSES rows and samples_per_class columns.
-    """
     class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer',
                    'dog', 'frog', 'horse', 'ship', 'truck']
 
     fig, axes = plt.subplots(NUM_CLASSES, samples_per_class, figsize=(samples_per_class*3, NUM_CLASSES*3))
     for c in range(NUM_CLASSES):
         class_indices = [i for i, lbl in enumerate(synthetic_dataset.labels) if lbl == c]
-        # Take the first `samples_per_class` images of this class
         sample_indices = class_indices[:samples_per_class]
         sample_images = synthetic_dataset.images[sample_indices]
         sample_labels = [synthetic_dataset.labels[i] for i in sample_indices]
@@ -358,9 +360,7 @@ class ACGANTrainer:
                 valid = torch.full((b_size,), 1.0, device=self.device)
                 fake = torch.full((b_size,), 0.0, device=self.device)
 
-                ##############################################
                 # (1) Train Discriminator
-                ##############################################
                 self.netD.zero_grad()
 
                 # Forward pass real images
@@ -383,9 +383,7 @@ class ACGANTrainer:
                 d_loss.backward()
                 self.optimizerD.step()
 
-                ##############################################
                 # (2) Train Generator
-                ##############################################
                 self.netG.zero_grad()
                 validity_fake_for_g, class_logits_fake_for_g = self.netD(fake_images)
                 validity_fake_for_g = validity_fake_for_g.view(-1)
@@ -463,13 +461,12 @@ class CNNTrainer:
 # Main Training Workflow
 #############################
 def main():
-    # Load datasets
+    # Load datasets (with augmentation)
     print("Loading CIFAR-10 dataset...")
     data_handler = CIFAR10Dataset()
     train_dataset = data_handler.dataset
     test_dataset = data_handler.get_test_dataset()
 
-    # We'll use a 30k subset of the training data
     total_length = len(train_dataset)
     indices = list(range(total_length))
     np.random.shuffle(indices)
@@ -480,43 +477,19 @@ def main():
     test_loader = data_handler.get_dataloader(test_dataset, shuffle=False)
     train_full_loader = data_handler.get_dataloader(train_dataset)
 
-    # Train ACGAN on 30k real images
-    print("Training ACGAN on 30k real images...")
+    # Train ACGAN on 30k real images (with augmentation and updated hyperparameters)
+    print("Training ACGAN on 30k real images with improvements...")
     acgan_trainer = ACGANTrainer()
     G_losses, D_losses = acgan_trainer.train(train_30k_loader)
     acgan_trainer.plot_gan_losses(G_losses, D_losses)
 
     # Generate synthetic data using the ACGAN
-    print("Generating 20k synthetic images using the trained ACGAN...")
-    def generate_acgan_data(generator, num_samples, device=DEVICE, latent_dim=LATENT_DIM, show_samples=False):
-        generator.eval()
-        synthetic_images = []
-        synthetic_labels = []
-        num_samples_per_class = num_samples // NUM_CLASSES
-
-        with torch.no_grad():
-            for class_label in range(NUM_CLASSES):
-                for _ in range(num_samples_per_class // BATCH_SIZE):
-                    z = torch.randn(BATCH_SIZE, latent_dim, device=device)
-                    labels_batch = torch.full((BATCH_SIZE,), class_label, dtype=torch.long, device=device)
-                    fake_images, _ = generator(z, labels_batch)
-                    synthetic_images.append(fake_images.cpu())
-                    synthetic_labels.extend([class_label] * BATCH_SIZE)
-
-        synthetic_images = torch.cat(synthetic_images)
-        synthetic_dataset = SyntheticDataset(synthetic_images, synthetic_labels)
-
-        if show_samples:
-            visualize_batch(synthetic_images, synthetic_labels)
-            plt.show()
-
-        return synthetic_dataset
-
+    print("Generating 20k synthetic images using the improved ACGAN...")
     generator = acgan_trainer.get_generator()
-    synthetic_dataset = generate_acgan_data(generator, 20000, device=DEVICE, show_samples=False)
+    synthetic_dataset = generate_synthetic_data(generator, 20000, device=DEVICE, show_samples=False)
 
-    # Visualize a few generated images from each class and save as a single plot
-    print("Visualizing generated images from each class...")
+    # Visualize a few generated images
+    print("Visualizing generated images per class...")
     visualize_each_class(synthetic_dataset, samples_per_class=5)
 
     # Combine real and synthetic datasets
@@ -531,18 +504,18 @@ def main():
     cnn_trainer_30k_real.save_model(os.path.join(MODEL_DIR, 'cnn_30k_real.pkl'))
 
     # Train CNN on combined data
-    print("Training CNN on combined 30k real and 20k synthetic data...")
+    print("Training CNN on combined 30k real + 20k synthetic data...")
     cnn_trainer_combined = CNNTrainer()
     cnn_trainer_combined.train(combined_loader)
     cnn_trainer_combined.save_model(os.path.join(MODEL_DIR, 'cnn_combined.pkl'))
 
     # Train CNN on full 50k real data
-    print("Training CNN on 50k real images...")
+    print("Training CNN on full 50k real images...")
     cnn_trainer_full_real = CNNTrainer()
     cnn_trainer_full_real.train(train_full_loader)
     cnn_trainer_full_real.save_model(os.path.join(MODEL_DIR, 'cnn_full_real.pkl'))
 
-    # Plot training losses for all three CNNs on a single plot
+    # Plot training losses for all three CNNs
     print("Plotting CNN training losses for all three conditions...")
     plt.figure(figsize=(10,5))
     plt.title("CNN Training Losses")
