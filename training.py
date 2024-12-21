@@ -16,7 +16,7 @@ import seaborn as sns
 #############################
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSES = 10
-BATCH_SIZE = 100
+BATCH_SIZE = 50
 DATA_DIR = './data'
 MODEL_DIR = './models'
 RESULTS_DIR = './results'
