@@ -461,17 +461,31 @@ class CNNTrainer:
 # Main Training Workflow
 #############################
 def main():
-    # Load datasets (with augmentation)
     print("Loading CIFAR-10 dataset...")
     data_handler = CIFAR10Dataset()
     train_dataset = data_handler.dataset
     test_dataset = data_handler.get_test_dataset()
 
-    total_length = len(train_dataset)
-    indices = list(range(total_length))
-    np.random.shuffle(indices)
-    train_30k_indices = indices[:30000]
-    train_30k_dataset = torch.utils.data.Subset(train_dataset, train_30k_indices)
+    # Number of samples per class for the 30k subset:
+    samples_per_class = 3000
+    total_classes = NUM_CLASSES  # 10 for CIFAR-10
+
+    # Extract targets to identify classes
+    train_targets = torch.tensor(train_dataset.targets)
+    balanced_indices = []
+
+    for class_id in range(total_classes):
+        # Get all indices for this class
+        class_indices = (train_targets == class_id).nonzero(as_tuple=True)[0].tolist()
+        # Shuffle them
+        np.random.shuffle(class_indices)
+        # Pick the first samples_per_class indices
+        selected_indices = class_indices[:samples_per_class]
+        balanced_indices.extend(selected_indices)
+
+    # Shuffle final indices to avoid any class-based ordering in the final dataset
+    np.random.shuffle(balanced_indices)
+    train_30k_dataset = torch.utils.data.Subset(train_dataset, balanced_indices)
 
     train_30k_loader = data_handler.get_dataloader(train_30k_dataset)
     test_loader = data_handler.get_dataloader(test_dataset, shuffle=False)
